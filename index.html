@@ -444,5 +444,58 @@ async function migrarDadosLocais() {
   toast('Seus dados antigos foram enviados para o grupo.');
                                                                                        }
 
+  function pararListeners() { UNSUBS.forEach(u => u()); UNSUBS = [] }
+
+function ligarListeners() {
+  pararListeners();
+  const L = id => collection(db, 'lojas', LOJA, id);
+
+  UNSUBS.push(onSnapshot(doc(db, 'lojas', LOJA), s => {
+    if (s.exists()) { LOJA_NOME = s.data().nome || 'Minha loja'; render() }
+  }));
+  UNSUBS.push(onSnapshot(L('itens'),    s => { S.items   = s.docs.map(d => ({ id:d.id, ...d.data() })); render() }));
+  UNSUBS.push(onSnapshot(L('clientes'), s => { S.clients = s.docs.map(d => ({ id:d.id, ...d.data() })); render() }));
+  UNSUBS.push(onSnapshot(L('comandas'), s => {
+    S.tabs = s.docs.map(d => ({ id:d.id, ...d.data() })).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    render();
+  }));
+  UNSUBS.push(onSnapshot(L('ledger'),   s => { S.ledger  = s.docs.map(d => ({ id:d.id, ...d.data() })); render() }));
+                                              }
+
+  function telaLogin(msg) {
+  $('#nav').innerHTML = '';
+  $('#app').innerHTML = `<div style="text-align:center;padding:60px 10px">
+    <div style="display:inline-block">${LOGO}</div>
+    <h1 style="margin-top:18px">Comandas</h1>
+    <p class="mut">Comandas, fiado e vendas do seu bar — sincronizados entre os aparelhos da equipe.</p>
+    <div style="margin-top:26px"><button data-act="login">Entrar com Google</button></div>
+    ${msg ? `<p class="mut" style="margin-top:16px">${esc(msg)}</p>` : ''}
+  </div>`;
+}
+
+function telaGrupo(msg) {
+  $('#nav').innerHTML = '';
+  $('#app').innerHTML = `<div style="text-align:center;padding:50px 10px">
+    <div style="display:inline-block">${LOGO}</div>
+    <h1 style="margin-top:18px">Criar meu grupo</h1>
+    <p class="mut">O grupo é a sua loja. Depois você convida a equipe por link.</p>
+    <div class="row" style="margin-top:22px"><input id="gNome" placeholder="Nome do bar ou restaurante" aria-label="Nome do grupo"></div>
+    <div class="row"><button data-act="gCriar">Criar grupo</button></div>
+    ${msg ? `<p class="mut" style="margin-top:16px">${esc(msg)}</p>` : ''}
+  </div>`;
+}
+
+function telaConvite(msg) {
+  $('#nav').innerHTML = '';
+  $('#app').innerHTML = `<div style="text-align:center;padding:50px 10px">
+    <div style="display:inline-block">${LOGO}</div>
+    <h1 style="margin-top:18px">Convite</h1>
+    <p class="mut">Você foi convidado para entrar num grupo de comandas.</p>
+    <div class="row" style="margin-top:22px"><button data-act="aceitar">Aceitar convite</button></div>
+    ${msg ? `<p class="mut" style="margin-top:16px">${esc(msg)}</p>` : ''}
+  </div>`;
+}
+
+  
   
   
