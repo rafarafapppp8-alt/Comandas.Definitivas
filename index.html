@@ -750,6 +750,280 @@ async function carregarMembros() {
   render();
 }
 
+  const PAGES = [
+  ['tabs', 'Comandas', IC.tabs],
+  ['clients', 'Clientes', IC.cli],
+  ['sales', 'Vendas', IC.sales],
+  ['items', 'Itens', IC.items]
+];
+
+function render() {
+  if (!USER || !LOJA) return;
+  $('#nav').innerHTML = PAGES.map(([k, t, i]) =>
+    `<button class="${V.page === k ? 'on' : ''}" data-act="page" data-v="${k}">${i}<span>${t}</span></button>`
+  ).join('') + `<button data-act="sheet">${IC.more}<span>Mais</span></button>`;
+
+  const p = V.page;
+  $('#app').innerHTML =
+      p === 'tabs'    ? pageTabs()
+    : p === 'clients' ? pageClients()
+    : p === 'sales'   ? pageSales()
+    : p === 'items'   ? pageItems()
+    : p === 'imp'     ? pageImport()
+    : p === 'membros' ? pageMembros()
+    : p === 'backup'  ? pageBackup()
+    : pageTabs();
+  if (p === 'membros' && !V.membros) carregarMembros();
+                          }
+
+  document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const a = el.dataset.const id = el.dataset.id, v = el.dataset.v;                                                                                                                  /* login / grupo / convite */
+  if (a === 'login') { try { await entrarComGoogle() } catch { telaLogin('Não foi possível entrar. Tente de novo.') } return }
+  if (a === 'gCriar') {
+    const nome = $('#gNome')?.value.trim();
+    if (!nome) { telaGrupo('Dê um nome ao grupo.'); return }
+    try { const r = await criarGrupo({ nome }); LOJA = r.data.lojaId; ligarListeners(); await migrarDadosLocais(); render() }
+    catch { telaGrupo('Não foi possível criar o grupo.') }
+    return;
+  }
+  if (a === 'aceitar') {
+    try {
+      const r = await aceitarConvite(conviteDaUrl);
+      LOJA = r.data.lojaId;
+      history.replaceState({}, '', location.pathname);
+      ligarListeners(); await migrarDadosLocais(); render();
+    } catch (err) {
+      const m = err?.code === 'not-found' ? 'Convite inválido.'
+        : err?.code === 'already-exists' ? 'Este convite já foi usado.'
+        : err?.code === 'failed-precondition' ? 'O grupo já tem 5 membros.'
+        : 'Não foi possível aceitar o convite.';
+      telaConvite(m);
+    }
+    return;
+  }
+  if (a === 'logout') { fecharSheet(); await sair(); return }
+
+  /* navegação */
+  if (a === 'page') {
+    fecharSheet();
+    V.page = v; V.open = null; V.receipt = null; V.cli = null;
+    V.paying = false; V.payCred = false; V.del = false; V.msg = ''; V.busca = '';
+    if (v === 'membros') V.membros = null;
+    render(); window.scrollTo(0, 0); return;
+  }
+  if (a === 'sheet') { abrirSheet(); return }
+  if (a === 'back') { V.open = null; V.receipt = null; V.paying = false; V.payCred = false; V.del = false; V.busca = ''; render(); return }
+  if (a === 'filter') { V.filter = v; render(); return }
+
+  /* comandas */
+  if (a === 'newTab') {
+    const nome = ($('#newName')?.value || '').trim() || 'Comanda ' + (S.tabs.filter(t => t.open).length + 1);
+    const t = { id: uid(), name: nome, lines: [], open: true, ts: Date.now(), by: me() };
+    await gravarComanda(t); V.open = t.id; render(); return;
+  }
+  if (a === 'open') { V.open = id; V.receipt = null; V.paying = false; V.payCred = false; V.del = false; V.busca = ''; render(); window.scrollTo(0, 0); return }
+  if (a === 'openSale') { V.receipt = id; V.open = null; render(); window.scrollTo(0, 0); return }
+
+  if (a === 'tile') {
+    const t = S.tabs.find(x => x.id === V.open); if (!t) return;
+    const it = S.items.find(x => x.id === id); if (!it) return;
+    const disp = disponivel(it, t.id);
+    if (disp !== Infinity && disp <= 0) { toast('Sem estoque de ' + it.name + '.'); return }
+    addLine(t, it, 1);
+    await gravarComanda(t); render(); return;
+  }
+  if (a === 'inc' || a === 'dec' || a === 'rm') {
+    const t = S.tabs.find(x => x.id === V.open); if (!t) return;
+    const i = +el.dataset.i, l = t.lines[i]; if (!l) return;
+    if (a === 'rm') t.lines.splice(i, 1);
+    else if (a === 'dec') { l.qty--; if (l.qty <= 0) t.lines.splice(i, 1) }
+    else {
+      const it = S.items.find(x => x.id === l.itemId);
+      if (it) {
+        const disp = disponivel(it, t.id);
+        if (disp !== Infinity && l.qty + 1 > disp) {
+          toast('Só tem ' + Math.max(0, disp) + ' de ' + it.name + ' disponível.');
+          return;
+        }
+      }
+      l.qty++;
+    }
+    await gravarComanda(t); render(); return;
+  }
+  if (a === 'del') {
+    if (!V.del) { V.del = true; render(); return }
+    const t = S.tabs.find(x => x.id === V.open); if (!t) return;
+    if (!t.open) await devolverEstoque(t);
+    await apagarComanda(t.id);
+    registrarLog('excluir-comanda', t.name);
+    V.open = null; V.del = false; render(); return;
+  }
+
+  /* pagamento */
+  if (a === 'askPay') {
+    if (V.paying || V.payCred) { V.paying = false; V.payCred = false; render(); return }
+    const t = S.tabs.find(x => x.id === V.open); if (!t) return;
+    if (!t.lines.length) { toast('Comanda vazia.'); return }
+    const falta = faltando(t);
+    if (falta.length) {
+      toast('Estoque insuficiente: ' + falta.map(f => f.nome + ' (tem ' + f.tem + ')').join(', '));
+      return;
+    }
+    V.paying = true; V.payCred = false; render(); return;
+  }
+  if (a === 'pay') {
+    const t = S.tabs.find(x => x.id === V.open); if (!t) return;
+    if (v === 'Saldo do cliente') {
+      if (!S.clients.length) { toast('Nenhum cliente cadastrado.'); return }
+      V.payCred = true; V.paying = false; render(); return;
+    }
+    await baixarEstoque(t);
+    t.open = false; t.pay = v; t.paidAt = Date.now(); t.closedBy = me();
+    await gravarComanda(t);
+    registrarLog('fechar-comanda', `${t.name} · ${v} · ${brl(tot(t))}`);
+    V.paying = false; V.open = null; V.receipt = t.id; render(); window.scrollTo(0, 0); return;
+  }
+  if (a === 'payCli') {
+    const t = S.tabs.find(x => x.id === V.open); if (!t) return;
+    const c = S.clients.find(x => x.id === id); if (!c) return;
+    const total = tot(t), saldo = bal(c.id);
+    if (saldo + 0.005 < total) { toast('Saldo insuficiente.'); return }
+    await baixarEstoque(t);
+    await lancarLedger({ cid: c.id, k: 'use', amt: total, note: t.name, method: 'Saldo' });
+    t.open = false; t.pay = 'Saldo do cliente'; t.cid = c.id; t.paidAt = Date.now(); t.closedBy = me();
+    await gravarComanda(t);
+    registrarLog('fechar-comanda', `${t.name} · saldo de ${c.name} · ${brl(total)}`);
+    V.payCred = false; V.open = null; V.receipt = t.id; render(); window.scrollTo(0, 0); return;
+  }
+  if (a === 'toggle') {
+    const t = S.tabs.find(x => x.id === V.receipt); if (!t) return;
+    await devolverEstoque(t);
+    if (t.cid) await lancarLedger({ cid: t.cid, k: 'ref', amt: tot(t), note: 'Reabertura de ' + t.name, method: 'Saldo' });
+    t.open = true; delete t.pay; delete t.paidAt; delete t.closedBy; delete t.cid;
+    await gravarComanda(t);
+    registrarLog('reabrir-comanda', t.name);
+    V.receipt = null; V.open = t.id; render(); return;
+  }
+
+  /* clientes */
+  if (a === 'cliAdd') {
+    const nome = ($('#cliName')?.value || '').trim();
+    if (!nome) { toast('Digite o nome.'); return }
+    await gravarCliente({ id: uid(), name: nome, ts: Date.now() }); render(); return;
+  }
+  if (a === 'cliOpen') { V.cli = id; V.del = false; V.msg = ''; render(); window.scrollTo(0, 0); return }
+  if (a === 'cliBack') { V.cli = null; V.del = false; render(); return }
+  if (a === 'cDep' || a === 'cWd') {
+    const c = S.clients.find(x => x.id === V.cli); if (!c) return;
+    const amt = num($('#cAmt')?.value || '');
+    if (amt <= 0) { V.msg = 'Informe um valor.'; render(); return }
+    const meth = $('#cMeth')?.value || 'Dinheiro';
+    const note = ($('#cNote')?.value || '').trim();
+    if (a === 'cDep') {
+      await lancarLedger({ cid: c.id, k: 'dep', amt, method: meth, note });
+      registrarLog('credito-cliente', `${c.name} · ${brl(amt)}`);
+    } else {
+      if (bal(c.id) + 0.005 < amt) { V.msg = 'Saldo insuficiente para retirar esse valor.'; render(); return }
+      await lancarLedger({ cid: c.id, k: 'wd', amt, method: meth, note: note || 'Retirada' });
+      registrarLog('retirada-cliente', `${c.name} · ${brl(amt)}`);
+    }
+    V.msg = ''; render(); return;
+  }
+  if (a === 'cliDel') {
+    if (!V.del) { V.del = true; render(); return }
+    const c = S.clients.find(x => x.id === V.cli); if (!c) return;
+    if (Math.abs(bal(c.id)) > 0.005) { V.msg = 'Zere o saldo antes de excluir.'; V.del = false; render(); return }
+    await apagarCliente(c.id); registrarLog('excluir-cliente', c.name);
+    V.cli = null; V.del = false; render(); return;
+  }
+
+  /* itens */
+  if (a === 'itAdd') {
+    const nome = ($('#itName')?.value || '').trim();
+    const preco = num($('#itPrice')?.value || '');
+    const estq = ($('#itEst')?.value || '').trim();
+    if (!nome) { toast('Digite o nome do item.'); return }
+    const it = { id: uid(), name: nome, price: preco, al: '' };
+    if (estq !== '') it.estoque = Math.max(0, Math.round(num(estq)));
+    await gravarItem(it); render(); return;
+  }
+  if (a === 'itRepor') {
+    const it = S.items.find(x => x.id === id); if (!it) return;
+    await gravarItem({ ...it, estoque: (est(it) || 0) + 10 }); return;
+  }
+  if (a === 'itDel') {
+    const it = S.items.find(x => x.id === id); if (!it) return;
+    await apagarItem(id); registrarLog('excluir-item', it.name); return;
+  }
+
+  /* importar */
+  if (a === 'impGo') {
+    V.impText = $('#impText')?.value || '';
+    V.imp = parse(V.impText);
+    render(); return;
+  }
+  if (a === 'impClear') { V.impText = ''; V.imp = null; render(); return }
+  if (a === 'impRm') { V.imp.found.splice(+el.dataset.i, 1); render(); return }
+  if (a === 'impApply') {
+    if (!V.imp || !V.imp.found.length) { toast('Nada para lançar.'); return }
+    let t;
+    if (V.impDest === 'new') {
+      t = { id: uid(), name: V.impName.trim() || 'Importada ' + new Date().toLocaleDateString('pt-BR'), lines: [], open: true, ts: Date.now(), by: me() };
+    } else {
+      t = S.tabs.find(x => x.id === V.impDest);
+      if (!t) { toast('Comanda não encontrada.'); return }
+    }
+    let bloqueado = null;
+    for (const f of V.imp.found) {
+      const it = S.items.find(x => x.id === f.itemId); if (!it) continue;
+      const disp = disponivel(it, t.id);
+      if (disp !== Infinity && f.qty > disp) { bloqueado = it.name + ' (tem ' + Math.max(0, disp) + ')'; break }
+    }
+    if (bloqueado) { toast('Estoque insuficiente: ' + bloqueado); return }
+    V.imp.found.forEach(f => {
+      const it = S.items.find(x => x.id === f.itemId); if (!it) return;
+      addLine(t, it, f.qty);
+    });
+    await gravarComanda(t);
+    registrarLog('importar', `${t.name} · ${V.imp.found.length} itens`);
+    V.imp = null; V.impText = ''; V.open = t.id; V.page = 'tabs'; render(); window.scrollTo(0, 0); return;
+  }
+
+  /* membros */
+  if (a === 'convidar') {
+    try {
+      const r = await gerarConvite({ lojaId: LOJA });
+      const link = location.origin + location.pathname + '?grupo=' + LOJA + '&t=' + r.data.token;
+      V.msg = 'Link (envie por WhatsApp, vale uma vez): ' + link;
+      render();
+      if (navigator.share) navigator.share({ title: 'Convite Comandas', text: 'Entre no grupo de comandas:', url: link }).catch(() => {});
+      else { try { await navigator.clipboard.writeText(link); V.msg += ' — copiado!'; render() } catch {} }
+    } catch { toast('Não foi possível gerar o convite.') }
+    return;
+  }
+  if (a === 'removerMembro') {
+    try { await removerMembro({ lojaId: LOJA, uid: id }); V.membros = null; render() }
+    catch { toast('Não foi possível remover.') }
+    return;
+  }
+
+  /* backup */
+  if (a === 'exp') {
+    const dados = { versao: 2, exportadoEm: new Date().toISOString(), loja: LOJA, nome: LOJA_NOME, items: S.items, clients: S.clients, tabs: S.tabs, ledger: S.ledger };
+    const blob = new Blob([JSON.stringify(dados, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = 'comandas-backup-' + dk(Date.now()) + '.json';
+    link.click(); URL.revokeObjectURL(url);
+    V.msg = 'Backup baixado.'; render(); return;
+  }
+  if (a === 'impFile') { $('#fileIn')?.click(); return }
+});
+
+  
+
   
   
   
