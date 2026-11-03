@@ -256,4 +256,27 @@ async function removerMembro({ lojaId, uid }) {
   b.delete(doc(db, 'usuarios', uid));
   await b.commit();
   return { data: {} };
-                                            }
+ }
+
+  const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const brl = n => (+n || 0).toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
+const uid = () => Math.random().toString(36).slice(2, 9);
+const norm = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const num = s => { s = String(s); const v = parseFloat(s.includes(',') ? s.replace(/\./g,'').replace(',','.') : s); return isNaN(v) ? 0 : v };
+const dk = ts => { const d = new Date(ts); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') };
+const fmtD = k => k.split('-').reverse().join('/');
+
+/* estoque: null/undefined = não controla */
+const temEstoque = it => it.estoque !== null && it.estoque !== undefined && it.estoque !== '';
+const est = it => temEstoque(it) ? (+it.estoque || 0) : null;
+const LIMITE_BAIXO = 3;
+
+let S = { items: [], tabs: [], clients: [], ledger: [] };
+let V = { page:'tabs', open:null, filter:'open', imp:null, impText:'', impDest:'new', impName:'', del:false, membros:null, receipt:null, paying:false, payCred:false, cli:null, day:null, busca:'', sheet:false, toast:'' };
+let USER = null, LOJA = null, LOJA_NOME = '', UNSUBS = [];
+
+const me = () => USER?.email || 'não identificado';
+const urlParams = new URLSearchParams(location.search);
+const conviteDaUrl = urlParams.get('grupo') && urlParams.get('t')
+  ? { lojaId: urlParams.get('grupo'), token: urlParams.get('t') } : null;
