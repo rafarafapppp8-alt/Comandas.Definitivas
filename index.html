@@ -670,6 +670,58 @@ function clientView(c) {
   ${Object.keys(days).sort().reverse().map(k => `<div class="line"><div class="nm">${fmtD(k)}</div><b>${brl(days[k])}</b></div>`).join('') || '<p class="empty">Sem vendas neste mês.</p>'}`;
     }
 
+  function pageItems() {
+  const baixos = S.items.filter(i => temEstoque(i) && est(i) <= LIMITE_BAIXO);
+  return `<h1>Itens</h1>
+  <p class="mut">Deixe o estoque vazio para o item não controlar quantidade. Cada tamanho é um item: "Heineken 500 ml" e "Heineken Long Neck" separados.</p>
+  ${baixos.length ? `<div class="alert">${IC.alert}<span><b>Acabando:</b> ${baixos.map(i => esc(i.name) + ' (' + est(i) + ')').join(', ')}</span></div>` : ''}
+  <div class="row"><input id="itName" placeholder="Nome do item" aria-label="Nome">
+    <input id="itPrice" inputmode="decimal" placeholder="Preço" aria-label="Preço">
+    <input id="itEst" inputmode="numeric" placeholder="Estoque" aria-label="Estoque"></div>
+  <div class="row"><button data-act="itAdd">Adicionar item</button></div>
+  ${S.items.length ? S.items.map(i => {
+    const e = est(i);
+    const cls = e === null ? '' : e <= 0 ? 'zero' : e <= LIMITE_BAIXO ? 'low' : '';
+    return `<div class="line">
+      <div class="nm"><input data-chg="itN" data-id="${i.id}" value="${esc(i.name)}" aria-label="Nome">
+        <small><input data-chg="itA" data-id="${i.id}" value="${esc(i.al || '')}" placeholder="também chamado: heineken, heine" aria-label="Apelidos"></small>
+        ${e !== null ? `<small class="stk ${cls}" style="font-weight:700">${e} em estoque</small>` : '<small>sem controle de estoque</small>'}
+      </div>
+      <input class="qty" data-chg="itP" data-id="${i.id}" inputmode="decimal" value="${i.price.toFixed(2)}" aria-label="Preço">
+      <input class="qty" data-chg="itE" data-id="${i.id}" inputmode="numeric" value="${e === null ? '' : e}" placeholder="—" aria-label="Estoque">
+      <button class="ghost" data-act="itRepor" data-id="${i.id}" aria-label="Repor 10">+10</button>
+      <button class="ghost" data-act="itDel" data-id="${i.id}" aria-label="Excluir">${IC.x}</button>
+    </div>`;
+  }).join('') : '<p class="empty">Nenhum item cadastrado.</p>'}`;
+                                                                  }
+
+  function pageImport() {
+  let res = '';
+  if (V.imp) {
+    res = `<h2>Reconhecidos (${V.imp.found.length})</h2>` + (V.imp.found.length ? V.imp.found.map((f, i) => {
+      const it = S.items.find(x => x.id === f.itemId) || { name:'?', price:0 };
+      return `<div class="line"><div class="nm">${esc(it.name)}<small>de "${esc(f.src)}"</small></div>
+        <input class="qty" type="number" min="1" value="${f.qty}" data-chg="impQ" data-i="${i}" aria-label="Quantidade">
+        <b>${brl(it.price * f.qty)}</b>
+        <button class="ghost" data-act="impRm" data-i="${i}" aria-label="Remover">${IC.x}</button></div>`;
+    }).join('') : '<p class="empty">Nada reconhecido.</p>');
+    res += `<h2>Não reconhecidos (${V.imp.un.length})</h2>` + (V.imp.un.length ? V.imp.un.map((u, i) =>
+      `<div class="line"><div class="nm">${esc(u.name)}<small>de "${esc(u.src)}" · qtd ${u.qty}</small></div>
+        <select data-chg="impAl" data-i="${i}" aria-label="Vincular a um item"><option value="">Vincular a…</option>${S.items.map(it => `<option value="${it.id}">${esc(it.name)}</option>`).join('')}</select></div>`).join('')
+    : '<p class="empty">Tudo reconhecido.</p>');
+    res += `<h2>Lançar em</h2><div class="row"><select data-chg="impDest" aria-label="Destino">
+      <option value="new"${V.impDest === 'new' ? ' selected' : ''}>Nova comanda</option>
+      ${S.tabs.filter(t => t.open).map(t => `<option value="${t.id}"${V.impDest === t.id ? ' selected' : ''}>${esc(t.name)}</option>`).join('')}</select></div>`;
+    if (V.impDest === 'new') res += `<div class="row"><input data-chg="impName" value="${esc(V.impName)}" placeholder="Nome da comanda (opcional)" aria-label="Nome da comanda"></div>`;
+    res += `<div class="row"><button data-act="impApply">Lançar na comanda</button></div>`;
+  }
+  return `<h1>Importar do WhatsApp</h1>
+  <p class="mut">Cole as mensagens dos clientes. O app reconhece os itens que você já cadastrou.</p>
+  <textarea id="impText" rows="8" placeholder="Ex.:&#10;João: 2 coxinha e 1 coca&#10;Maria: 3 pastel, 2 suco" aria-label="Mensagens">${esc(V.impText)}</textarea>
+  <div class="row"><button data-act="impGo">Analisar</button><button class="ghost" data-act="impClear">Limpar</button></div>
+  ${res}`;
+}
+
   
   
   
