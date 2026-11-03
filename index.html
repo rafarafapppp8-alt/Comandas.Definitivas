@@ -312,4 +312,59 @@ const LOGO = `<svg width="38" height="38" viewBox="0 0 64 64" aria-hidden="true"
   <path d="M40 44l3 3 5-6" stroke="#0e131a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 </svg>`;
 
+  const tot = t => t.lines.reduce((a, l) => a + l.price * l.qty, 0);
+const cnt = t => t.lines.reduce((a, l) => a + l.qty, 0);
+const bal = id => Math.round(S.ledger.filter(l => l.cid === id)
+  .reduce((s, l) => s + (l.k === 'dep' || l.k === 'ref' ? l.amt : -l.amt), 0) * 100) / 100;
+const cname = id => (S.clients.find(c => c.id === id) || { name:'?' }).name;
+
+function addLine(t, it, qty) {
+  const l = t.lines.find(x => x.itemId === it.id && x.price === it.price);
+  if (l) l.qty += qty; else t.lines.push({ itemId: it.id, name: it.name, price: it.price, qty });
+}
+
+/* quanto já está comprometido em comandas abertas (fora a comanda atual) */
+function reservado(itemId, excetoTabId) {
+  return S.tabs.filter(t => t.open && t.id !== excetoTabId)
+    .reduce((s, t) => s + t.lines.filter(l => l.itemId === itemId).reduce((a, l) => a + l.qty, 0), 0);
+}
+
+/* disponível = estoque − reservado em outras comandas abertas */
+function disponivel(it, excetoTabId) {
+  if (!temEstoque(it)) return Infinity;
+  return est(it) - reservado(it.id, excetoTabId);
+}
+
+/* itens que vão faltar ao fechar a comanda */
+function faltando(t) {
+  const out = [];
+  t.lines.forEach(l => {
+    const it = S.items.find(x => x.id === l.itemId);
+    if (!it || !temEstoque(it)) return;
+    const disp = disponivel(it, t.id);
+    if (l.qty > disp) out.push({ nome: it.name, pedido: l.qty, tem: Math.max(0, disp) });
+  });
+  return out;
+}
+
+function baixarEstoque(t) {
+  const b = writeBatch(db);
+  t.lines.forEach(l => {
+    const it = S.items.find(x => x.id === l.itemId);
+    if (!it || !temEstoque(it)) return;
+    b.set(doc(db, 'lojas', LOJA, 'itens', it.id), { ...it, estoque: est(it) - l.qty });
+  });
+  return b.commit();
+}
+
+function devolverEstoque(t) {
+  const b = writeBatch(db);
+  t.lines.forEach(l => {
+    const it = S.items.find(x => x.id === l.itemId);
+    if (!it || !temEstoque(it)) return;
+    b.set(doc(db, 'lojas', LOJA, 'itens', it.id), { ...it, estoque: est(it) + l.qty });
+  });
+  return b.commit();
+}
+
   
