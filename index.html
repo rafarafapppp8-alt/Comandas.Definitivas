@@ -610,7 +610,65 @@ function receiptView(t) {
   <div class="row"><button class="ghost" data-act="toggle">Reabrir comanda</button></div>`;
     }
 
-  
+  function pageClients() {
+  if (V.cli) { const c = S.clients.find(x => x.id === V.cli); if (c) return clientView(c); V.cli = null }
+  return `<h1>Clientes</h1>
+  <div class="row"><input id="cliName" placeholder="Nome do cliente" aria-label="Nome do cliente"><button data-act="cliAdd">Adicionar</button></div>
+  ${S.clients.length ? S.clients.map(c => {
+    const b = bal(c.id);
+    return `<button class="card" data-act="cliOpen" data-id="${c.id}">
+      <i class="av">${esc((c.name.trim()[0] || '?').toUpperCase())}</i>
+      <span class="cn">${esc(c.name)}<span class="mut">${b > 0 ? 'saldo a favor' : b < 0 ? 'devendo' : 'sem saldo'}</span></span>
+      <b>${brl(b)}</b></button>`;
+  }).join('') : '<p class="empty">Nenhum cliente ainda. Cadastre quem compra fiado ou deixa crédito.</p>'}`;
+}
+
+function clientView(c) {
+  const b = bal(c.id);
+  const hist = S.ledger.filter(l => l.cid === c.id).sort((a, z) => z.ts - a.ts);
+  const nome = { dep:'Crédito', wd:'Retirada', use:'Pagou comanda', ref:'Estorno' };
+  return `<button class="link" data-act="cliBack">${IC.back} Voltar</button>
+  <input class="title" data-chg="cliRename" data-id="${c.id}" value="${esc(c.name)}" aria-label="Nome do cliente">
+  <div class="total"><span>Saldo</span><span>${brl(b)}</span></div>
+  <h2>Lançar crédito</h2>
+  <div class="row"><input id="cAmt" inputmode="decimal" placeholder="Valor (ex.: 50,00)" aria-label="Valor">
+    <select id="cMeth" aria-label="Forma"><option>Dinheiro</option><option>Pix</option><option>Débito</option><option>Crédito</option></select></div>
+  <div class="row"><input id="cNote" placeholder="Descrição (ex.: pagou o almoço de ontem)" aria-label="Descrição"></div>
+  <div class="row"><button data-act="cDep">Adicionar crédito</button><button class="ghost" data-act="cWd">Retirar</button></div>
+  ${V.msg ? `<p class="mut">${esc(V.msg)}</p>` : ''}
+  <h2>Histórico</h2>
+  ${hist.length ? hist.map(l => `<div class="line">
+    <div class="nm">${esc(nome[l.k] || l.k)}${l.note ? ' — ' + esc(l.note) : ''}<small>${new Date(l.ts).toLocaleDateString('pt-BR')}${l.method ? ' · ' + esc(l.method) : ''}${l.by ? ' · por ' + esc(l.by) : ''}</small></div>
+    <b style="color:${l.k === 'dep' || l.k === 'ref' ? 'var(--ok)' : 'var(--warn)'}">${l.k === 'dep' || l.k === 'ref' ? '+' : '−'}${brl(l.amt)}</b></div>`).join('')
+  : '<p class="empty">Sem movimentações.</p>'}
+  <div class="row"><button class="warn" data-act="cliDel">${V.del ? 'Confirmar exclusão' : 'Excluir cliente'}</button></div>`;
+                }
+
+  function pageSales() {
+  const hoje = dk(Date.now());
+  const day = V.day || hoje;
+  const mo = day.slice(0, 7);
+  const M = S.tabs.filter(t => !t.open && t.paidAt && dk(t.paidAt).startsWith(mo));
+  const D = M.filter(t => dk(t.paidAt) === day);
+  const sum = a => a.reduce((s, t) => s + tot(t), 0);
+  const by = a => { const o = {}; a.forEach(t => { const k = t.pay || 'Não informado'; o[k] = (o[k] || 0) + tot(t) }); return Object.entries(o).map(([k, v]) => `<div class="line"><div class="nm">${esc(k)}</div><b>${brl(v)}</b></div>`).join('') };
+  const days = {}; M.forEach(t => { const k = dk(t.paidAt); days[k] = (days[k] || 0) + tot(t) });
+  const hm = ts => new Date(ts).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+
+  return `<h1>Vendas</h1>
+  <input type="date" data-chg="day" value="${day}" aria-label="Dia">
+  <h2>Dia ${fmtD(day)}</h2>
+  <div class="total"><span>${D.length} comandas</span><span>${brl(sum(D))}</span></div>
+  ${by(D)}
+  ${D.map(t => `<button class="card" data-act="openSale" data-id="${t.id}">
+    <span class="cn">${esc(t.name)}<span class="mut">${esc(t.pay || 'Não informado')} · ${hm(t.paidAt)}${t.closedBy ? ' · ' + esc(t.closedBy) : ''}</span></span>
+    <b>${brl(tot(t))}</b></button>`).join('') || '<p class="empty">Nenhuma venda neste dia.</p>'}
+  <h2>Mês ${fmtD(mo + '-01').slice(3)}</h2>
+  <div class="total"><span>${M.length} comandas</span><span>${brl(sum(M))}</span></div>
+  ${by(M)}
+  <h2>Dia a dia</h2>
+  ${Object.keys(days).sort().reverse().map(k => `<div class="line"><div class="nm">${fmtD(k)}</div><b>${brl(days[k])}</b></div>`).join('') || '<p class="empty">Sem vendas neste mês.</p>'}`;
+    }
 
   
   
