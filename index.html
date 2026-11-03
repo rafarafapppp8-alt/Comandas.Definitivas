@@ -188,3 +188,72 @@ button:disabled{opacity:.35;cursor:not-allowed;box-shadow:none}
 <div id="sheet"></div>
 
 <script type="module">
+const firebaseConfig = {
+  apiKey: "AIzaSyAMRbOipfikaylNDUmwYE6ZwOd0fhwRw-0",
+  authDomain: "comanda-legal.firebaseapp.com",
+  projectId: "comanda-legal",
+  storageBucket: "comanda-legal.firebasestorage.app",
+  messagingSenderId: "1061673474266",
+  appId: "1:1061673474266:web:918cd4ffa27c7cce4aade3",
+  measurementId: "G-7WBNEWC5H9"
+};
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, doc, collection, setDoc, addDoc, deleteDoc, getDoc, getDocs,
+         onSnapshot, writeBatch }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const app  = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db   = getFirestore(app);
+
+const provider = new GoogleAuthProvider();
+provider.setCustomParameters({ prompt: "select_account" });
+const entrarComGoogle = () => signInWithPopup(auth, provider);
+const sair            = () => signOut(auth);
+  async function criarGrupo({ nome }) {
+  const lojaId = crypto.randomUUID().slice(0, 8);
+  const b = writeBatch(db);
+  b.set(doc(db, 'lojas', lojaId), { nome, dono: USER.uid, criadoEm: Date.now() });
+  b.set(doc(db, 'lojas', lojaId, 'membros', USER.uid),
+        { email: USER.email, nome: USER.name || USER.email, papel: 'dono' });
+  b.set(doc(db, 'usuarios', USER.uid), { lojaId });
+  await b.commit();
+  return { data: { lojaId } };
+}
+
+async function gerarConvite({ lojaId }) {
+  const token = crypto.randomUUID().replace(/-/g, '').slice(0, 20);
+  await setDoc(doc(db, 'convites', token), {
+    lojaId, criadoPor: USER.uid, criadoEm: Date.now(), usado: false
+  });
+  return { data: { token } };
+}
+
+async function aceitarConvite({ lojaId, token }) {
+  const cRef = doc(db, 'convites', token);
+  const c = await getDoc(cRef);
+  if (!c.exists()) throw { code: 'not-found' };
+  if (c.data().usado) throw { code: 'already-exists' };
+
+  const ms = await getDocs(collection(db, 'lojas', lojaId, 'membros'));
+  if (ms.size >= 5) throw { code: 'failed-precondition' };
+
+  const b = writeBatch(db);
+  b.set(doc(db, 'lojas', lojaId, 'membros', USER.uid),
+        { email: USER.email, nome: USER.name || USER.email, papel: 'membro' });
+  b.set(doc(db, 'usuarios', USER.uid), { lojaId });
+  b.update(cRef, { usado: true, usadoPor: USER.uid });
+  await b.commit();
+  return { data: { lojaId } };
+}
+
+async function removerMembro({ lojaId, uid }) {
+  const b = writeBatch(db);
+  b.delete(doc(db, 'lojas', lojaId, 'membros', uid));
+  b.delete(doc(db, 'usuarios', uid));
+  await b.commit();
+  return { data: {} };
+                                            }
