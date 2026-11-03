@@ -496,6 +496,122 @@ function telaConvite(msg) {
   </div>`;
 }
 
+let toastTimer = null;
+function toast(msg) {
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.remove(), 3200);
+}
+
+function abrirSheet() { V.sheet = true; $('#scrim').classList.add('on'); $('#sheet').classList.add('on'); renderSheet() }
+function fecharSheet() { V.sheet = false; $('#scrim').classList.remove('on'); $('#sheet').classList.remove('on') }
+
+function renderSheet() {
+  $('#sheet').innerHTML = `<div class="grab"></div>
+    <h2>Mais</h2>
+    <button class="mi" data-act="page" data-v="imp">${IC.imp}<span>Importar do WhatsApp<small>Colar mensagens e lançar na comanda</small></span></button>
+    <button class="mi" data-act="page" data-v="membros">${IC.membros}<span>Membros do grupo<small>Convidar e remover pessoas</small></span></button>
+    <button class="mi" data-act="page" data-v="backup">${IC.bk}<span>Backup<small>Baixar cópia dos dados</small></span></button>
+    <button class="mi" data-act="logout">${IC.x}<span>Sair da conta<small>${esc(USER?.email || '')}</small></span></button>`;
+}
+
+function pageTabs() {
+  if (V.open) { const t = S.tabs.find(x => x.id === V.open); if (t) return tabView(t); V.open = null }
+  if (V.receipt) { const t = S.tabs.find(x => x.id === V.receipt); if (t) return receiptView(t); V.receipt = null }
+
+  const abertas = S.tabs.filter(t => t.open);
+  const lista = V.filter === 'open' ? abertas : S.tabs.filter(t => !t.open).slice(0, 40);
+  const baixos = S.items.filter(i => temEstoque(i) && est(i) <= LIMITE_BAIXO);
+
+  return `<div class="brand">${LOGO}<span>Comandas</span></div>
+  ${baixos.length ? `<div class="alert">${IC.alert}<span><b>Estoque baixo:</b> ${baixos.map(i => esc(i.name) + ' (' + est(i) + ')').join(', ')}</span></div>` : ''}
+  <div class="row"><input id="newName" placeholder="Nome da comanda (ex.: Mesa 4)" aria-label="Nome da comanda"><button data-act="newTab">Abrir</button></div>
+  <div class="seg">
+    <button class="${V.filter === 'open' ? 'on' : ''}" data-act="filter" data-v="open">Abertas (${abertas.length})</button>
+    <button class="${V.filter === 'closed' ? 'on' : ''}" data-act="filter" data-v="closed">Fechadas</button>
+  </div>
+  ${lista.length ? lista.map(t => `<button class="card" data-act="open" data-id="${t.id}">
+    <span class="cn">${esc(t.name)}<span class="mut">${cnt(t)} ${cnt(t) === 1 ? 'item' : 'itens'}${t.open ? '' : ' · ' + esc(t.pay || '')}</span></span>
+    <b>${brl(tot(t))}</b></button>`).join('')
+  : `<p class="empty">${V.filter === 'open' ? 'Nenhuma comanda aberta. Abra uma acima.' : 'Nenhuma comanda fechada ainda.'}</p>`}`;
+}
+
+function tabView(t) {
+  const busca = norm(V.busca);
+  const itens = S.items.filter(i => !busca || norm(i.name).includes(busca) || norm(i.al || '').includes(busca));
+  const falta = faltando(t);
+
+  return `<button class="link" data-act="back">${IC.back} Voltar</button>
+  <input class="title" data-chg="rename" data-id="${t.id}" value="${esc(t.name)}" aria-label="Nome da comanda">
+  ${t.lines.length ? `<h2>Na comanda</h2>${t.lines.map((l, i) => {
+    const it = S.items.find(x => x.id === l.itemId);
+    const semEst = it && temEstoque(it) && l.qty > disponivel(it, t.id);
+    return `<div class="line">
+      <div class="nm">${esc(l.name)}${semEst ? '<small style="color:var(--warn)">acima do estoque disponível</small>' : ''}</div>
+      <button class="ghost" data-act="dec" data-i="${i}" aria-label="Menos">−</button>
+      <b style="min-width:24px;text-align:center">${l.qty}</b>
+      <button class="ghost" data-act="inc" data-i="${i}" aria-label="Mais">+</button>
+      <b style="min-width:70px;text-align:right">${brl(l.price * l.qty)}</b>
+      <button class="ghost" data-act="rm" data-i="${i}" aria-label="Remover">${IC.x}</button>
+    </div>`;
+  }).join('')}` : '<p class="empty">Comanda vazia. Toque nos itens abaixo.</p>'}
+
+  <div class="total"><span>Total</span><span>${brl(tot(t))}</span></div>
+
+  ${t.lines.length ? `<div class="row"><button data-act="askPay">Fechar comanda</button></div>` : ''}
+
+  <h2>Adicionar item</h2>
+  <div class="search">${IC.search}<input id="busca" data-chg="busca" value="${esc(V.busca)}" placeholder="Buscar item…" aria-label="Buscar item"></div>
+  ${itens.length ? `<div class="grid">${itens.map(i => {
+    const disp = disponivel(i, t.id);
+    const zerado = disp !== Infinity && disp <= 0;
+    const cls = disp === Infinity ? '' : disp <= 0 ? 'zero' : disp <= LIMITE_BAIXO ? 'low' : '';
+    return `<button class="tile${zerado ? ' off' : ''}" data-act="tile" data-id="${i.id}" ${zerado ? 'disabled' : ''}>
+      <span>${esc(i.name)}</span>
+      <span class="tp">${brl(i.price)}</span>
+      ${disp !== Infinity ? `<span class="stk ${cls}">${disp} em estoque</span>` : ''}
+    </button>`;
+  }).join('')}</div>` : '<p class="empty">Nenhum item encontrado.</p>'}
+
+  ${V.paying ? `<h2>Forma de pagamento</h2>
+    <div class="seg pay">
+      ${['Dinheiro', 'Pix', 'Débito', 'Crédito', 'Saldo do cliente'].map(p =>
+        `<button data-act="pay" data-v="${p}">${p}</button>`).join('')}
+      <button class="ghost" data-act="askPay">Cancelar</button>
+    </div>
+    ${falta.length ? `<div class="alert">${IC.alert}<span><b>Estoque insuficiente:</b> ${falta.map(f => esc(f.nome) + ' — pedido ' + f.pedido + ', tem ' + f.tem).join('; ')}</span></div>` : ''}`
+  : ''}
+
+  ${V.payCred ? `<h2>Escolher cliente</h2>
+    ${S.clients.length ? S.clients.map(c => {
+      const b = bal(c.id), ok = b >= tot(t) - 0.005;
+      return `<button class="card" data-act="payCli" data-id="${c.id}" ${ok ? '' : 'disabled'}>
+        <i class="av">${esc((c.name.trim()[0] || '?').toUpperCase())}</i>
+        <span class="cn">${esc(c.name)}<span class="mut">saldo ${brl(b)}</span></span>
+        <b>${ok ? 'Usar' : 'Sem saldo'}</b></button>`;
+    }).join('') : '<p class="empty">Nenhum cliente cadastrado.</p>'}
+    <div class="row"><button class="ghost" data-act="askPay">Voltar</button></div>` : ''}
+
+  <div class="row" style="margin-top:24px"><button class="warn" data-act="del">${V.del ? 'Confirmar exclusão' : 'Excluir comanda'}</button></div>`;
+}
+
+function receiptView(t) {
+  return `<button class="link" data-act="back">${IC.back} Voltar</button>
+  <div class="alert ok">${IC.alert}<span>Comanda fechada em ${esc(t.pay || '')}${t.closedBy ? ' por ' + esc(t.closedBy) : ''}.</span></div>
+  <h1>${esc(t.name)}</h1>
+  <p class="mut">${new Date(t.paidAt || Date.now()).toLocaleString('pt-BR')}</p>
+  ${t.lines.map(l => `<div class="line"><div class="nm">${l.qty}× ${esc(l.name)}</div><b>${brl(l.price * l.qty)}</b></div>`).join('')}
+  <div class="total"><span>Total</span><span>${brl(tot(t))}</span></div>
+  ${t.cid ? `<p class="mut">Pago com saldo de ${esc(cname(t.cid))}.</p>` : ''}
+  <div class="row"><button class="ghost" data-act="toggle">Reabrir comanda</button></div>`;
+    }
+
+  
+
   
   
   
