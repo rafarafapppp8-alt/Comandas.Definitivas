@@ -722,6 +722,34 @@ function clientView(c) {
   ${res}`;
 }
 
+  function pageBackup() {
+  return `<h1>Backup</h1>
+  <p class="mut">Seus dados ficam na nuvem e sincronizam entre os aparelhos do grupo. O backup abaixo é uma cópia extra.</p>
+  <div class="row"><button data-act="exp">Baixar backup (.json)</button></div>
+  <div class="row"><button class="ghost" data-act="impFile">Restaurar de um arquivo</button><input type="file" id="fileIn" accept="application/json" hidden></div>
+  ${V.msg ? `<p class="mut">${esc(V.msg)}</p>` : ''}
+  <h2>Grupo</h2>
+  <div class="line"><div class="nm">${esc(LOJA_NOME || 'Minha loja')}<small>${esc(LOJA || '')}</small></div></div>`;
+  }
+
+  function pageMembros() {
+  const ms = V.membros;
+  return `<h1>Membros do grupo</h1>
+  <p class="mut">${esc(LOJA_NOME || 'Minha loja')} · ${ms ? ms.length : '—'} de 5 pessoas</p>
+  ${ms ? ms.map(m => `<div class="line">
+    <div class="nm">${esc(m.nome || m.email)}<small>${esc(m.email)} · ${m.papel === 'dono' ? 'dono' : 'membro'}</small></div>
+    ${m.papel !== 'dono' ? `<button class="warn" data-act="removerMembro" data-id="${m.id}">Remover</button>` : ''}</div>`).join('')
+  : '<p class="empty">Carregando…</p>'}
+  <div class="row"><button data-act="convidar">Gerar link de convite</button></div>
+  ${V.msg ? `<p class="mut" style="word-break:break-all">${esc(V.msg)}</p>` : ''}`;
+}
+
+async function carregarMembros() {
+  const s = await getDocs(collection(db, 'lojas', LOJA, 'membros'));
+  V.membros = s.docs.map(d => ({ id: d.id, ...d.data() }));
+  render();
+}
+
   
   
   
