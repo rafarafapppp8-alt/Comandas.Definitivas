@@ -1022,6 +1022,85 @@ function render() {
   if (a === 'impFile') { $('#fileIn')?.click(); return }
 });
 
+  document.addEventListener('change', async e => {
+  const el = e.target.closest('[data-chg]');
+  if (!el) return;
+  const c = el.dataset.chg, id = el.dataset.id;
+
+  if (c === 'rename') {
+    const t = S.tabs.find(x => x.id === id); if (!t) return;
+    t.name = el.value.trim() || t.name; await gravarComanda(t); return;
+  }
+  if (c === 'busca') { V.busca = el.value; render(); const b = $('#busca'); if (b) { b.focus(); b.setSelectionRange(b.value.length, b.value.length) } return }
+  if (c === 'day') { V.day = el.value; render(); return }
+
+  if (c === 'itN') { const it = S.items.find(x => x.id === id); if (it) await gravarItem({ ...it, name: el.value.trim() || it.name }); return }
+  if (c === 'itA') { const it = S.items.find(x => x.id === id); if (it) await gravarItem({ ...it, al: el.value.trim() }); return }
+  if (c === 'itP') { const it = S.items.find(x => x.id === id); if (it) await gravarItem({ ...it, price: num(el.value) }); return }
+  if (c === 'itE') {
+    const it = S.items.find(x => x.id === id); if (!it) return;
+    const v = el.value.trim();
+    if (v === '') { const n = { ...it }; delete n.estoque; await gravarItem(n) }
+    else await gravarItem({ ...it, estoque: Math.max(0, Math.round(num(v))) });
+    return;
+  }
+
+  if (c === 'cliRename') {
+    const cl = S.clients.find(x => x.id === id); if (!cl) return;
+    await gravarCliente({ ...cl, name: el.value.trim() || cl.name }); return;
+  }
+
+  if (c === 'impDest') { V.impDest = el.value; render(); return }
+  if (c === 'impName') { V.impName = el.value; return }
+  if (c === 'impQ') { V.imp.found[+el.dataset.i].qty = Math.max(1, parseInt(el.value) || 1); render(); return }
+  if (c === 'impAl') {
+    const u = V.imp.un[+el.dataset.i]; if (!u || !el.value) return;
+    V.imp.found.push({ itemId: el.value, qty: u.qty, src: u.src });
+    V.imp.un.splice(+el.dataset.i, 1); render(); return;
+  }
+});
+
+/* arquivo de backup */
+document.addEventListener('change', async e => {
+  if (e.target.id !== 'fileIn') return;
+  const f = e.target.files?.[0]; if (!f) return;
+  try {
+    const dados = JSON.parse(await f.text());
+    const b = writeBatch(db);
+    (dados.items || []).forEach(i => b.set(doc(db, 'lojas', LOJA, 'itens', i.id), i));
+    (dados.clients || []).forEach(c => b.set(doc(db, 'lojas', LOJA, 'clientes', c.id), c));
+    (dados.tabs || []).forEach(t => b.set(doc(db, 'lojas', LOJA, 'comandas', t.id), t));
+    (dados.ledger || []).forEach(l => b.set(doc(collection(db, 'lojas', LOJA, 'ledger')), l));
+    await b.commit();
+    V.msg = 'Backup restaurado.'; render();
+  } catch { V.msg = 'Arquivo inválido.'; render() }
+});
+
+/* scrim fecha o menu */
+$('#scrim').addEventListener('click', fecharSheet);
+
+  onAuthStateChanged(auth, async u => {
+  if (!u) { USER = null; LOJA = null; pararListeners(); telaLogin(); return }
+  USER = u;
+  if (conviteDaUrl) { telaConvite(); return }
+  try {
+    const s = await getDoc(doc(db, 'usuarios', u.uid));
+    if (s.exists() && s.data().lojaId) {
+      LOJA = s.data().lojaId;
+      ligarListeners();
+      await migrarDadosLocais();
+      render();
+    } else {
+      telaGrupo();
+    }
+  } catch {
+    telaGrupo('Não foi possível carregar seu grupo.');
+  }
+});
+</script>
+</body>
+</html>
+
   
 
   
