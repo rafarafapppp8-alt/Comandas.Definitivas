@@ -367,4 +367,82 @@ function devolverEstoque(t) {
   return b.commit();
 }
 
+  const NW = { um:1, uma:1, dois:2, duas:2, tres:3, quatro:4, cinco:5, seis:6 };
+function dl(a, b) {
+  const d = []; for (let i = 0; i <= a.length; i++) { d[i] = [i]; for (let j = 1; j <= b.length; j++) d[i][j] = i ? 0 : j }
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+    const c = a[i-1] === b[j-1] ? 0 : 1;
+    d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + c);
+    if (i > 1 && j > 1 && a[i-1] === b[j-2] && a[i-2] === b[j-1]) d[i][j] = Math.min(d[i][j], d[i-2][j-2] + 1);
+  }
+  return d[a.length][b.length];
+}
+const keys = it => [it.name, ...(it.al || '').split(',')].map(k => norm(k).trim()).filter(Boolean);
+
+function matchItem(s) {
+  let best = null, bd = 9;
+  for (const it of S.items) for (const k of keys(it)) {
+    if (k === s) return it;
+    const lim = k.length < 4 ? 0 : k.length < 8 ? 1 : 2;
+    const d = dl(k, s);
+    if (d <= lim && d < bd) { bd = d; best = it }
+  }
+  if (best) return best;
+  let bl = 0;
+  for (const it of S.items) for (const k of keys(it)) {
+    if (k.length > bl && (' ' + s + ' ').includes(' ' + k + ' ')) { bl = k.length; best = it }
+  }
+  return best;
+}
+
+function parse(text) {
+  const found = [], un = [];
+  const pre = /^\[?\d{1,2}\/\d{1,2}\/\d{2,4}[,\s]+\d{1,2}:\d{2}(:\d{2})?\]?\s*(-\s*)?[^:]{1,40}:\s*/;
+  text.split(/\r?\n/).forEach(raw => {
+    const t = raw.replace(pre, '').trim();
+    t.split(/\s*[,;]\s*|\s+e\s+(?=\d)/).forEach(seg => {
+      seg = seg.trim                                                                                         if (!seg) return;
+      let s = norm(seg).replace(/\s+/g, ' '), q = 1, m;
+      if (m = s.match(/^(\d+)\s*(?:x\s+)?(.+)$/)) { q = parseInt(m[1]); s = m[2] }
+      else if (m = s.match(/^(.+?)\s*x\s*(\d+)$/)) { q = parseInt(m[2]); s = m[1] }
+      else if (m = s.match(/^(\S+)\s+(.+)$/)) { if (NW[m[1]]) { q = NW[m[1]]; s = m[2] } }
+      s = s.replace(/[.!?]+$/, '').trim();
+      if (!s) return;
+      const it = matchItem(s);
+      if (it) found.push({ itemId: it.id, qty: Math.max(1, q), src: seg });
+      else un.push({ name: s, qty: Math.max(1, q), src: seg });
+    });
+  });
+  return { found, un };
+                     }
+
+  const gravarItem    = it => setDoc(doc(db, 'lojas', LOJA, 'itens', it.id), it);
+const apagarItem    = id => deleteDoc(doc(db, 'lojas', LOJA, 'itens', id));
+const gravarCliente = c  => setDoc(doc(db, 'lojas', LOJA, 'clientes', c.id), c);
+const apagarCliente = id => deleteDoc(doc(db, 'lojas', LOJA, 'clientes', id));
+const gravarComanda = t  => setDoc(doc(db, 'lojas', LOJA, 'comandas', t.id), t);
+const apagarComanda = id => deleteDoc(doc(db, 'lojas', LOJA, 'comandas', id));
+const lancarLedger  = l  => addDoc(collection(db, 'lojas', LOJA, 'ledger'), { ...l, by: me(), ts: Date.now() });
+const registrarLog  = (acao, detalhe) => addDoc(collection(db, 'lojas', LOJA, 'log'), { acao, detalhe, by: me(), ts: Date.now() });
+
+async function migrarDadosLocais() {
+  const flag = `migrado-${LOJA}`;
+  if (localStorage.getItem(flag)) return;
+  const bruto = localStorage.getItem('comandas-v1');
+  if (!bruto) { localStorage.setItem(flag, '1'); return }
+  let antigo; try { antigo = JSON.parse(bruto) } catch { return }
+  const temAlgo = (antigo.items?.length || antigo.tabs?.length || antigo.clients?.length);
+  if (!temAlgo) { localStorage.setItem(flag, '1'); return }
+
+  const b = writeBatch(db);
+  (antigo.items || []).forEach(i => b.set(doc(db, 'lojas', LOJA, 'itens', i.id), i));
+  (antigo.clients || []).forEach(c => b.set(doc(db, 'lojas', LOJA, 'clientes', c.id), c));
+  (antigo.tabs || []).forEach(t => b.set(doc(db, 'lojas', LOJA, 'comandas', t.id), t));
+  (antigo.ledger || []).forEach(l => b.set(doc(collection(db, 'lojas', LOJA, 'ledger')), { ...l, by: l.by || me() }));
+  await b.commit();
+  localStorage.setItem(flag, '1');
+  toast('Seus dados antigos foram enviados para o grupo.');
+                                                                                       }
+
+  
   
